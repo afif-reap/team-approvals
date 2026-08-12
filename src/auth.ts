@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { getConfig, type TeamConfig } from "./config.js";
-import { captureOAuthRedirect } from "./chrome.js";
+import { captureOAuthRedirect } from "./browser.js";
 import { CliError } from "./errors.js";
 import { deleteRefreshToken, readRefreshToken, saveRefreshToken } from "./keychain.js";
 

@@ -14,8 +14,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "acorn": "^8.18.0",
     "commander": "14.0.0",
-    "jose": "6.1.0"
+    "ipaddr.js": "^2.5.0",
+    "jose": "6.1.0",
+    "parse5": "^8.0.1"
   },
   "devDependencies": {
     "@types/node": "24.3.0",

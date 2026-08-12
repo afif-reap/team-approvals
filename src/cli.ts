@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { TeamApi, validateApproval } from "./api.js";
 import { login, refreshSession, revokeSession } from "./auth.js";
 import { configPath, defaultApprovalComment, getConfig } from "./config.js";
+import { discoverTeamConfig, writeTeamConfig } from "./discovery.js";
 import { asCliError, CliError } from "./errors.js";
 import { readRefreshToken } from "./keychain.js";
 import { printJson, printRequests, requestSummary } from "./output.js";
@@ -37,6 +38,24 @@ program.exitOverride((error) => {
   if (error.exitCode === 0) process.exit(0);
   throw error;
 });
+
+program
+  .command("init")
+  .description("Discover public Amplify settings from a TEAM app and create the local config")
+  .requiredOption("--app-url <url>", "TEAM web application URL")
+  .option("--dry-run", "discover and validate without writing config")
+  .option("--force", "replace an existing local config")
+  .action(async (options: { appUrl: string; dryRun?: boolean; force?: boolean }) => {
+    const discovered = await discoverTeamConfig(options.appUrl);
+    if (!options.dryRun) writeTeamConfig(discovered, configPath, Boolean(options.force));
+    const result = {
+      written: !options.dryRun,
+      path: configPath,
+      config: discovered,
+    };
+    if (jsonRequested) printJson(result);
+    else process.stdout.write(`${options.dryRun ? "Discovered" : "Created"} TEAM config at ${configPath}.\n`);
+  });
 
 program
   .command("doctor")

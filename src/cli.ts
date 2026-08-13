@@ -2,12 +2,13 @@
 import { Command, CommanderError, Option } from "commander";
 import { createRequire } from "node:module";
 import { TeamApi, validateApproval } from "./api.js";
-import { login, refreshSession, revokeSession } from "./auth.js";
+import { importRefreshToken, refreshSession, revokeSession } from "./auth.js";
 import { configPath, defaultApprovalComment, getConfig } from "./config.js";
 import { discoverTeamConfig, writeTeamConfig } from "./discovery.js";
 import { asCliError, CliError } from "./errors.js";
 import { readRefreshToken } from "./keychain.js";
 import { printJson, printRequests, requestSummary } from "./output.js";
+import { buildRequestDraft, RequestsApi } from "./requests.js";
 
 const program = new Command();
 const jsonRequested = process.argv.includes("--json");
@@ -15,7 +16,7 @@ const packageJson = createRequire(import.meta.url)("../package.json") as { versi
 
 program
   .name("team-approvals")
-  .description("Approve AWS TEAM elevated-access requests from the command line")
+  .description("Create and approve AWS TEAM elevated-access requests")
   .version(packageJson.version)
   .option("--json", "emit stable JSON to stdout");
 
@@ -86,7 +87,7 @@ program
         authenticated,
         email,
         source: refreshTokenStored ? "macos_keychain" : "missing",
-        next_step: authenticated ? null : "team-approvals auth login",
+        next_step: authenticated ? null : "team-approvals auth import",
       },
       api: { reachable: endpointReachable, problem },
       config: {
@@ -102,21 +103,128 @@ program
       process.stdout.write(
         `Configuration: OK\nAuthentication: ${authenticated ? email : "missing or expired"}\nTEAM API: ${endpointReachable ? "reachable" : "not checked or unreachable"}\n`,
       );
-      if (!authenticated) process.stdout.write("Next: team-approvals auth login\n");
+      if (!authenticated) process.stdout.write("Next: team-approvals auth import\n");
     }
     if (!result.ok) process.exitCode = 1;
   });
 
 const auth = program.command("auth").description("Manage TEAM Cognito authentication");
 
-auth
-  .command("login")
-  .description("Sign in through TEAM Cognito and save the refresh token in macOS Keychain")
+function promptForRefreshToken(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const input = process.stdin;
+    let token = "";
+    const wasRaw = input.isRaw;
+    const cleanup = () => {
+      input.off("data", onData);
+      input.setRawMode?.(Boolean(wasRaw));
+      input.pause();
+      process.stderr.write("\n");
+    };
+    const finish = () => {
+      cleanup();
+      resolve(token);
+    };
+    const onData = (chunk: Buffer | string) => {
+      for (const character of String(chunk)) {
+        if (character === "\r" || character === "\n" || character === "\u0004") {
+          finish();
+          return;
+        }
+        if (character === "\u0003") {
+          cleanup();
+          reject(new CliError("Refresh-token import cancelled", "import_cancelled"));
+          return;
+        }
+        if (character === "\u007f" || character === "\b") token = token.slice(0, -1);
+        else token += character;
+        if (token.length > 16_384) {
+          cleanup();
+          reject(new CliError("Refresh token input is too large", "invalid_refresh_token"));
+          return;
+        }
+      }
+    };
+    process.stderr.write(
+      [
+        "In the logged-in TEAM tab, open DevTools Console and run:",
+        "",
+        "(() => {",
+        "  const matches = Object.entries(localStorage).filter(",
+        '    ([key, value]) => key.startsWith("CognitoIdentityServiceProvider.") &&',
+        '      key.endsWith(".refreshToken") && value,',
+        "  );",
+        "  if (matches.length !== 1) throw new Error(`Expected one refresh token, found ${matches.length}`);",
+        '  copy(matches[0][1]); return "Refresh token copied";',
+        "})()",
+        "",
+        "Paste the refresh token here and press Enter (input hidden): ",
+      ].join("\n"),
+    );
+    input.setEncoding("utf8");
+    input.setRawMode?.(true);
+    input.resume();
+    input.on("data", onData);
+  });
+}
+
+const requests = program.command("requests").description("Discover eligible access and create TEAM requests");
+
+requests
+  .command("options")
+  .description("List account and role combinations eligible for the authenticated user")
   .action(async () => {
-    const session = await login();
+    const session = await refreshSession();
+    const api = new RequestsApi(session);
+    const [options, settings] = await Promise.all([api.getOptions(), api.getSettings()]);
+    printJson({ options, settings });
+  });
+
+requests
+  .command("create")
+  .description("Create one temporary elevated-access request")
+  .requiredOption("--account <id-or-name>", "eligible AWS account ID or exact name")
+  .requiredOption("--role <arn-or-name>", "eligible permission-set ARN or exact name")
+  .requiredOption("--duration <hours>", "requested duration in hours", Number)
+  .requiredOption("--justification <text>", "business justification")
+  .option("--ticket <number>", "change-management ticket number")
+  .option("--start-time <iso-date>", "ISO date-time; defaults to now")
+  .option("--dry-run", "validate and show the request without creating it")
+  .action(
+    async (options: {
+      account: string;
+      role: string;
+      duration: number;
+      justification: string;
+      ticket?: string;
+      startTime?: string;
+      dryRun?: boolean;
+    }) => {
+      const session = await refreshSession();
+      const api = new RequestsApi(session);
+      const [eligibleOptions, settings] = await Promise.all([api.getOptions(), api.getSettings()]);
+      const draft = buildRequestDraft(eligibleOptions, settings, options);
+      if (draft.approvalRequired) await api.assertApproverAvailable(draft.input.accountId);
+      if (options.dryRun) {
+        printJson({ dry_run: true, action: "create_request", approval_required: draft.approvalRequired, request: draft.input });
+        return;
+      }
+      const created = await api.create(draft.input);
+      if (jsonRequested) printJson({ created: true, request: created });
+      else process.stdout.write(`Created TEAM request ${created.id} (${created.accountName} / ${created.role}).\n`);
+    },
+  );
+
+auth
+  .command("import")
+  .description("Prompt for, validate, and save a Cognito refresh token")
+  .action(async () => {
+    if (!process.stdin.isTTY) throw new CliError("Authentication import requires an interactive terminal", "tty_required");
+    const input = await promptForRefreshToken();
+    const session = await importRefreshToken(input);
     const result = { authenticated: true, email: session.email, expires_at: session.expiresAt };
     if (jsonRequested) printJson(result);
-    else process.stdout.write(`Authenticated as ${session.email}.\n`);
+    else process.stdout.write(`Imported TEAM authentication for ${session.email}.\n`);
   });
 
 auth
@@ -131,11 +239,11 @@ auth
 
 auth
   .command("logout")
-  .description("Delete the saved TEAM refresh token")
+  .description("Revoke and delete saved TEAM authentication")
   .action(async () => {
     const deleted = await revokeSession();
     if (jsonRequested) printJson({ authenticated: false, token_deleted: deleted });
-    else process.stdout.write(deleted ? "TEAM refresh token deleted.\n" : "No TEAM refresh token was stored.\n");
+    else process.stdout.write(deleted ? "TEAM authentication deleted.\n" : "No TEAM authentication was stored.\n");
   });
 
 const approvals = program.command("approvals").description("List, inspect, and approve TEAM requests");
@@ -162,9 +270,7 @@ approvals
     const session = await refreshSession();
     const request = await new TeamApi(session.accessToken).getRequest(requestId);
     if (!request) throw new CliError(`Request ${requestId} was not found or is not visible to you`, "request_not_found");
-    const result = requestSummary(request);
-    if (jsonRequested) printJson(result);
-    else printJson(result);
+    printJson(requestSummary(request));
   });
 
 approvals
@@ -184,9 +290,7 @@ approvals
     validateApproval(request, session.email);
 
     if (options.dryRun) {
-      const result = { dry_run: true, action: "approve", comment: options.comment, request: requestSummary(request) };
-      if (jsonRequested) printJson(result);
-      else printJson(result);
+      printJson({ dry_run: true, action: "approve", comment: options.comment, request: requestSummary(request) });
       return;
     }
 

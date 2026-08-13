@@ -1,10 +1,10 @@
 # team-approvals
 
-`team-approvals` lists and approves AWS TEAM elevated-access requests from the command line. It uses the same Cognito user identity and AppSync API as the deployed TEAM web application, preserving TEAM's approver authorization and audit attribution.
+`team-approvals` creates and approves AWS TEAM elevated-access requests from the command line. It uses the same Cognito identity and AppSync API as the TEAM web application.
 
 ## Install
 
-Requirements: macOS, Node.js 22+, pnpm, and a web browser.
+Requirements: macOS, Node.js 22+, and pnpm.
 
 `make install-local` installs a symlink in `~/.cargo/bin`, which is already on the local `PATH`.
 
@@ -28,13 +28,11 @@ Use `--force` only to replace an existing config. `config.example.json` document
 ## Authenticate
 
 ```sh
-team-approvals auth login
+team-approvals auth import
 team-approvals auth status
 ```
 
-`auth login` prints the Cognito authorization URL and opens it in the normal default browser. Immediately after sign-in, copy the full callback URL from the browser address bar and paste it into the CLI prompt before the TEAM application removes the OAuth parameters. Paste it only into the local CLI, never into chat or an agent prompt. The CLI validates the exact redirect origin, OAuth state, and authorization code before exchanging it. No browser extension, native host, automation permission, remote debugging, or temporary profile is required.
-
-Only the refresh token is persisted, under the `team-approvals` service in macOS Keychain. Each later command exchanges it for fresh access and ID tokens automatically and verifies the ID token signature and Cognito claims. When the refresh token expires or is revoked, run `auth login` again.
+`auth import` prints the DevTools snippet for copying the refresh token from an existing TEAM browser session, then accepts it in a hidden prompt. The CLI validates it with Cognito, verifies the signed ID token, and stores it under `team-approvals.refresh-token` in macOS Keychain. When it expires or is revoked, import a new token.
 
 ```sh
 team-approvals auth logout
@@ -51,6 +49,31 @@ team-approvals approvals approve <request-id> --comment "Reviewed and approved"
 ```
 
 The default comment is `Approved via TEAM CLI`. Approval always reads the request first, checks that it is still pending, rejects self-approval, verifies the authenticated email is assigned as an approver, and sends an AppSync conditional update requiring `status == pending`.
+
+## Access requests
+
+List account and role combinations from the authenticated user's TEAM entitlement policy:
+
+```sh
+team-approvals requests options
+```
+
+Validate a request without creating it:
+
+```sh
+team-approvals requests create \
+  --account 123456789012 \
+  --role PowerUserAccess \
+  --duration 4 \
+  --ticket CHANGE123 \
+  --justification "Production support" \
+  --start-time 2026-08-13T10:00:00Z \
+  --dry-run
+```
+
+Review the dry-run, then rerun the same command with the same `--start-time` and remove `--dry-run` to submit. `--account` accepts an eligible account ID or exact name. `--role` accepts an eligible permission-set ARN or exact name. `--start-time` accepts an RFC 3339 date-time with timezone and defaults to now for direct human use.
+
+The CLI resolves account and role values only from the caller's TEAM entitlement policy, enforces the narrower of policy and global duration limits, honors TEAM's ticket requirement, and submits the same `createRequests` mutation as the web form. TEAM's backend revalidates eligibility before granting access.
 
 ## JSON
 
@@ -75,23 +98,4 @@ The local deployment config is read only from `~/.config/team-approvals/config.j
 
 ## Agent skill
 
-The repository includes a portable agent skill at `skills/team-approvals/SKILL.md`. It teaches agents the authenticated read-first workflow and prevents ambiguous, bulk, self, stale, or unauthorized approvals.
-
-Agent runtimes that load repository skills from `skills/` can use it directly. Keep this path as the canonical skill and point runtime-specific installers at it rather than copying the file.
-
-To make the skill available to agents from any workspace, symlink it into the personal OpenCode skills directory:
-
-```sh
-make install-agent-skill
-```
-
-The target symlinks `skills/team-approvals` to `~/.config/opencode/skills/team-approvals`. A symlink keeps the installed skill updated when this repository is updated. Restart OpenCode after installing it, then ask an agent to check TEAM approvals or explicitly load the `team-approvals` skill.
-
-Verify the installation:
-
-```sh
-test -f ~/.config/opencode/skills/team-approvals/SKILL.md
-team-approvals --json doctor
-```
-
-If `~/.config/opencode/skills/team-approvals` already exists, remove or rename that existing installation before creating the symlink. Do not replace it until any local customizations have been reviewed.
+The portable skill is at `skills/team-approvals/SKILL.md`. Install it using your agent harness's normal skill workflow.

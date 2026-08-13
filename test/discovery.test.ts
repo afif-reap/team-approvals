@@ -29,9 +29,7 @@ test("parseAmplifyConfig derives every local config field", () => {
     graphQlEndpoint: "https://example.appsync-api.ap-southeast-1.amazonaws.com/graphql",
     cognitoDomain: "https://example.auth.ap-southeast-1.amazoncognito.com/",
     clientId: "client-id",
-    redirectUri: "https://team.example.com/",
     userPoolId: "ap-southeast-1_EXAMPLE",
-    scopes: ["openid", "email", "profile"],
   });
 });
 

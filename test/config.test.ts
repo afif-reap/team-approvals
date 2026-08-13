@@ -8,12 +8,10 @@ const valid = {
   graphQlEndpoint: "https://example.appsync-api.ap-southeast-1.amazonaws.com/graphql",
   cognitoDomain: "https://example.auth.ap-southeast-1.amazoncognito.com",
   clientId: "client-id",
-  redirectUri: "https://team.example.com/",
   userPoolId: "ap-southeast-1_EXAMPLE",
-  scopes: ["openid", "email", "profile"],
 };
 
-test("parseConfig accepts AWS endpoints and matching app redirects", () => {
+test("parseConfig accepts valid AWS service endpoints", () => {
   assert.equal(parseConfig(valid).clientId, "client-id");
 });
 

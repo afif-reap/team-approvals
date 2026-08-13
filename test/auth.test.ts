@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { buildAuthorizeUrl, getCognitoIssuer, verifyIdentityToken } from "../src/auth.js";
+import { getCognitoIssuer, parseImportedRefreshToken, verifyIdentityToken } from "../src/auth.js";
 import type { TeamConfig } from "../src/config.js";
 import { CliError } from "../src/errors.js";
 
@@ -11,20 +11,8 @@ const config: TeamConfig = {
   graphQlEndpoint: "https://example.appsync-api.ap-southeast-1.amazonaws.com/graphql",
   cognitoDomain: "https://example.auth.ap-southeast-1.amazoncognito.com/",
   clientId: "client-id",
-  redirectUri: "https://team.example.com/",
   userPoolId: "ap-southeast-1_EXAMPLE",
-  scopes: ["openid", "email", "profile"],
 };
-
-test("buildAuthorizeUrl uses authorization code with PKCE, state, and nonce", () => {
-  const url = new URL(buildAuthorizeUrl("challenge", "state", "nonce", config));
-  assert.equal(url.pathname, "/oauth2/authorize");
-  assert.equal(url.searchParams.get("response_type"), "code");
-  assert.equal(url.searchParams.get("code_challenge_method"), "S256");
-  assert.equal(url.searchParams.get("code_challenge"), "challenge");
-  assert.equal(url.searchParams.get("state"), "state");
-  assert.equal(url.searchParams.get("nonce"), "nonce");
-});
 
 test("verifyIdentityToken verifies signature and Cognito claims", async () => {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
@@ -34,7 +22,6 @@ test("verifyIdentityToken verifies signature and Cognito claims", async () => {
     email: "approver@example.com",
     "cognito:username": "idc_approver",
     token_use: "id",
-    nonce: "nonce",
   })
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(getCognitoIssuer(config.userPoolId))
@@ -43,12 +30,19 @@ test("verifyIdentityToken verifies signature and Cognito claims", async () => {
     .setExpirationTime("5m")
     .sign(privateKey);
 
-  assert.deepEqual(await verifyIdentityToken(token, config, { ...jwk, kid }, "nonce"), {
+  assert.deepEqual(await verifyIdentityToken(token, config, { ...jwk, kid }), {
     email: "approver@example.com",
     username: "idc_approver",
   });
-  await assert.rejects(
-    verifyIdentityToken(token, config, { ...jwk, kid }, "wrong-nonce"),
-    (error: unknown) => error instanceof CliError && error.code === "invalid_token",
-  );
+});
+
+test("parseImportedRefreshToken rejects empty, short, and whitespace-containing input", () => {
+  const token = "a".repeat(200);
+  assert.equal(parseImportedRefreshToken(`\n${token}\n`), token);
+  for (const input of ["", "short", `${token} invalid`]) {
+    assert.throws(
+      () => parseImportedRefreshToken(input),
+      (error: unknown) => error instanceof CliError && error.code === "invalid_refresh_token",
+    );
+  }
 });

@@ -8,9 +8,7 @@ export type TeamConfig = {
   graphQlEndpoint: string;
   cognitoDomain: string;
   clientId: string;
-  redirectUri: string;
   userPoolId: string;
-  scopes: string[];
 };
 
 export const configPath = path.join(os.homedir(), ".config", "team-approvals", "config.json");
@@ -42,15 +40,9 @@ function parseHttpsUrl(input: Record<string, unknown>, field: keyof TeamConfig):
 }
 
 export function parseConfig(input: Record<string, unknown>): TeamConfig {
-  const scopes = input.scopes;
-  if (!Array.isArray(scopes) || scopes.some((scope) => typeof scope !== "string" || scope.length === 0)) {
-    throw new CliError("TEAM config field scopes must be an array of non-empty strings", "invalid_config");
-  }
-
   const appUrl = parseHttpsUrl(input, "appUrl");
   const graphQlEndpoint = parseHttpsUrl(input, "graphQlEndpoint");
   const cognitoDomain = parseHttpsUrl(input, "cognitoDomain");
-  const redirectUri = parseHttpsUrl(input, "redirectUri");
   const clientId = requireString(input, "clientId");
   const userPoolId = requireString(input, "userPoolId");
 
@@ -59,9 +51,6 @@ export function parseConfig(input: Record<string, unknown>): TeamConfig {
   }
   if (!/^[a-z0-9-]+\.auth\.[a-z0-9-]+\.amazoncognito\.com$/.test(cognitoDomain.hostname) || cognitoDomain.pathname !== "/") {
     throw new CliError("TEAM cognitoDomain must be an Amazon Cognito hosted UI domain", "invalid_config");
-  }
-  if (appUrl.origin !== redirectUri.origin) {
-    throw new CliError("TEAM appUrl and redirectUri must use the same origin", "invalid_config");
   }
   if (!/^[a-z0-9-]+_[A-Za-z0-9]+$/.test(userPoolId)) {
     throw new CliError("TEAM userPoolId is invalid", "invalid_config");
@@ -72,9 +61,7 @@ export function parseConfig(input: Record<string, unknown>): TeamConfig {
     graphQlEndpoint: graphQlEndpoint.toString(),
     cognitoDomain: cognitoDomain.toString(),
     clientId,
-    redirectUri: redirectUri.toString(),
     userPoolId,
-    scopes,
   };
 }
 

@@ -161,20 +161,6 @@ function stringLiteral(properties: Map<string, AstNode>, key: string): string {
   return node.value;
 }
 
-function stringArray(properties: Map<string, AstNode>, key: string): string[] {
-  const node = properties.get(key);
-  if (node?.type !== "ArrayExpression" || !Array.isArray(node.elements)) {
-    throw new CliError(`TEAM bundle is missing ${key}`, "discovery_value_missing");
-  }
-  const values = node.elements.map((element) =>
-    isNode(element) && element.type === "Literal" && typeof element.value === "string" ? element.value : null,
-  );
-  if (values.length === 0 || values.some((value) => value === null)) {
-    throw new CliError(`TEAM bundle has invalid ${key}`, "discovery_value_missing");
-  }
-  return values as string[];
-}
-
 function parseConfigObject(configObject: AstNode, sourceAppUrl: string): TeamConfig {
   const source = new URL(sourceAppUrl);
   const properties = objectProperties(configObject);
@@ -184,16 +170,6 @@ function parseConfigObject(configObject: AstNode, sourceAppUrl: string): TeamCon
   const oauthNode = properties.get("oauth");
   if (!oauthNode) throw new CliError("TEAM bundle is missing OAuth configuration", "discovery_value_missing");
   const oauth = objectProperties(oauthNode);
-  const redirectUri = stringLiteral(oauth, "redirectSignIn").split(",").map((value) => value.trim()).find((candidate) => {
-    try {
-      return new URL(candidate).origin === source.origin;
-    } catch {
-      return false;
-    }
-  });
-  if (!redirectUri) {
-    throw new CliError("TEAM OAuth redirect does not match the supplied app origin", "discovery_origin_mismatch");
-  }
   const rawDomain = stringLiteral(oauth, "domain");
   const domain = rawDomain.startsWith("https://") ? rawDomain : `https://${rawDomain}`;
   return parseConfig({
@@ -201,9 +177,7 @@ function parseConfigObject(configObject: AstNode, sourceAppUrl: string): TeamCon
     graphQlEndpoint: stringLiteral(properties, "aws_appsync_graphqlEndpoint"),
     cognitoDomain: domain,
     clientId: stringLiteral(properties, "aws_user_pools_web_client_id"),
-    redirectUri,
     userPoolId: stringLiteral(properties, "aws_user_pools_id"),
-    scopes: stringArray(oauth, "scope"),
   });
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Option } from "commander";
 import { createRequire } from "node:module";
-import { TeamApi, validateApproval } from "./api.js";
+import { TeamApi, validateAction } from "./api.js";
 import { importRefreshToken, refreshSession, revokeSession } from "./auth.js";
 import { configPath, defaultApprovalComment, getConfig } from "./config.js";
 import { discoverTeamConfig, writeTeamConfig } from "./discovery.js";
@@ -246,7 +246,7 @@ auth
     else process.stdout.write(deleted ? "TEAM authentication deleted.\n" : "No TEAM authentication was stored.\n");
   });
 
-const approvals = program.command("approvals").description("List, inspect, and approve TEAM requests");
+const approvals = program.command("approvals").description("List, inspect, approve, and reject TEAM requests");
 
 approvals
   .command("list")
@@ -287,7 +287,7 @@ approvals
     const api = new TeamApi(session.accessToken);
     const request = await api.getRequest(requestId);
     if (!request) throw new CliError(`Request ${requestId} was not found or is not visible to you`, "request_not_found");
-    validateApproval(request, session.email);
+    validateAction(request, session.email);
 
     if (options.dryRun) {
       printJson({ dry_run: true, action: "approve", comment: options.comment, request: requestSummary(request) });
@@ -298,6 +298,36 @@ approvals
     const result = { approved: approved.status === "approved", request: requestSummary(approved) };
     if (jsonRequested) printJson(result);
     else process.stdout.write(`Approved ${approved.id} for ${approved.email} (${approved.accountName} / ${approved.role}).\n`);
+  });
+
+approvals
+  .command("reject")
+  .description("Reject one pending TEAM request")
+  .argument("<request-id>", "TEAM request ID")
+  .requiredOption("--comment <reason>", "reason for rejection")
+  .option("--dry-run", "validate and show the rejection without changing TEAM")
+  .action(async (requestId: string, options: { comment: string; dryRun?: boolean }) => {
+    if (!/[\p{L}\p{N}]/u.test(options.comment[0] ?? "")) {
+      throw new CliError("Rejection reason must start with a letter or number", "invalid_comment");
+    }
+    const session = await refreshSession();
+    const api = new TeamApi(session.accessToken);
+    const request = await api.getRequest(requestId);
+    if (!request) throw new CliError(`Request ${requestId} was not found or is not visible to you`, "request_not_found");
+    validateAction(request, session.email);
+
+    if (options.dryRun) {
+      printJson({ dry_run: true, action: "reject", comment: options.comment, request: requestSummary(request) });
+      return;
+    }
+
+    const rejected = await api.reject(requestId, options.comment);
+    if (rejected.status !== "rejected") {
+      throw new CliError(`TEAM returned unexpected rejection status ${rejected.status ?? "missing"}`, "invalid_api_response");
+    }
+    const result = { rejected: true, request: requestSummary(rejected) };
+    if (jsonRequested) printJson(result);
+    else process.stdout.write(`Rejected ${rejected.id} for ${rejected.email} (${rejected.accountName} / ${rejected.role}).\n`);
   });
 
 configureCommandOutput(program);

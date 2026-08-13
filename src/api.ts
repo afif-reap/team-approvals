@@ -45,8 +45,8 @@ const listRequestsQuery = `
   }
 `;
 
-const approveRequestMutation = `
-  mutation ApproveRequest($input: UpdateRequestsInput!, $condition: ModelRequestsConditionInput) {
+const actionRequestMutation = `
+  mutation ActionRequest($input: UpdateRequestsInput!, $condition: ModelRequestsConditionInput) {
     updateRequests(input: $input, condition: $condition) { ${requestFields} }
   }
 `;
@@ -57,12 +57,12 @@ export function buildPendingFilter(email: string): Record<string, unknown> {
   };
 }
 
-export function validateApproval(request: TeamRequest, approverEmail: string): void {
+export function validateAction(request: TeamRequest, approverEmail: string): void {
   if (request.status !== "pending") {
     throw new CliError(`Request ${request.id} is ${request.status ?? "missing"}, not pending`, "request_not_pending");
   }
   if (request.email === approverEmail) {
-    throw new CliError("TEAM does not allow users to approve their own requests", "self_approval_forbidden");
+    throw new CliError("TEAM does not allow users to action their own requests", "self_approval_forbidden");
   }
   if (!request.approvers?.includes(approverEmail)) {
     throw new CliError(`You are not an approver for request ${request.id}`, "not_request_approver");
@@ -140,11 +140,19 @@ export class TeamApi {
       .slice(0, limit);
   }
 
-  async approve(id: string, comment: string): Promise<TeamRequest> {
-    const data = await this.request<{ updateRequests: TeamRequest }>(approveRequestMutation, {
-      input: { id, status: "approved", comment },
+  async action(id: string, status: "approved" | "rejected", comment: string): Promise<TeamRequest> {
+    const data = await this.request<{ updateRequests: TeamRequest }>(actionRequestMutation, {
+      input: { id, status, comment },
       condition: { status: { eq: "pending" } },
     });
     return data.updateRequests;
+  }
+
+  approve(id: string, comment: string): Promise<TeamRequest> {
+    return this.action(id, "approved", comment);
+  }
+
+  reject(id: string, comment: string): Promise<TeamRequest> {
+    return this.action(id, "rejected", comment);
   }
 }

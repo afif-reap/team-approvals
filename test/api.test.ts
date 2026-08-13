@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPendingFilter, TeamApi, type TeamRequest, validateApproval } from "../src/api.js";
+import { buildPendingFilter, TeamApi, type TeamRequest, validateAction } from "../src/api.js";
 import { CliError } from "../src/errors.js";
 
 const request: TeamRequest = {
@@ -32,20 +32,20 @@ test("buildPendingFilter matches TEAM's approval queue", () => {
   });
 });
 
-test("validateApproval accepts an assigned pending request", () => {
-  assert.doesNotThrow(() => validateApproval(request, "approver@example.com"));
+test("validateAction accepts an assigned pending request", () => {
+  assert.doesNotThrow(() => validateAction(request, "approver@example.com"));
 });
 
-test("validateApproval rejects non-pending requests", () => {
+test("validateAction rejects non-pending requests", () => {
   assert.throws(
-    () => validateApproval({ ...request, status: "approved" }, "approver@example.com"),
+    () => validateAction({ ...request, status: "approved" }, "approver@example.com"),
     (error: unknown) => error instanceof CliError && error.code === "request_not_pending",
   );
 });
 
-test("validateApproval rejects self approval", () => {
+test("validateAction rejects self action", () => {
   assert.throws(
-    () => validateApproval({ ...request, email: "approver@example.com" }, "approver@example.com"),
+    () => validateAction({ ...request, email: "approver@example.com" }, "approver@example.com"),
     (error: unknown) => error instanceof CliError && error.code === "self_approval_forbidden",
   );
 });
@@ -98,6 +98,27 @@ test("approve sends a pending condition and maps AppSync conditional races", asy
   );
   assert.deepEqual(variables, {
     input: { id: "request-1", status: "approved", comment: "Approved" },
+    condition: { status: { eq: "pending" } },
+  });
+});
+
+test("reject sends the reason with rejected status and a pending condition", async () => {
+  let variables: Record<string, unknown> | undefined;
+  const fetcher: typeof fetch = async (_input, init) => {
+    variables = (JSON.parse(String(init?.body)) as { variables: Record<string, unknown> }).variables;
+    return new Response(
+      JSON.stringify({ data: { updateRequests: { ...request, status: "rejected", comment: "Insufficient justification" } } }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const rejected = await new TeamApi("token", "https://example.test/graphql", fetcher).reject(
+    "request-1",
+    "Insufficient justification",
+  );
+  assert.equal(rejected.status, "rejected");
+  assert.deepEqual(variables, {
+    input: { id: "request-1", status: "rejected", comment: "Insufficient justification" },
     condition: { status: { eq: "pending" } },
   });
 });

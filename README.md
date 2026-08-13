@@ -46,9 +46,11 @@ team-approvals approvals get <request-id>
 team-approvals approvals approve <request-id> --dry-run
 team-approvals approvals approve <request-id>
 team-approvals approvals approve <request-id> --comment "Reviewed and approved"
+team-approvals approvals reject <request-id> --comment "Insufficient justification" --dry-run
+team-approvals approvals reject <request-id> --comment "Insufficient justification"
 ```
 
-The default comment is `Approved via TEAM CLI`. Approval always reads the request first, checks that it is still pending, rejects self-approval, verifies the authenticated email is assigned as an approver, and sends an AppSync conditional update requiring `status == pending`.
+Approval and rejection always read the request first, check that it is still pending, block self-action, verify the authenticated email is assigned as an approver, and send an AppSync conditional update requiring `status == pending`. Approval defaults its comment to `Approved via TEAM CLI`; rejection requires an explicit reason.
 
 ## Access requests
 
@@ -85,7 +87,7 @@ team-approvals --json approvals list --limit 20
 team-approvals --json approvals approve <request-id> --dry-run
 ```
 
-Successful list output uses `{ "requests": [...], "count": number }`. Approval uses `{ "approved": true, "request": {...} }`. Errors use `{ "error": { "code": string, "message": string, "details"?: unknown } }` and a nonzero exit code. Tokens are never printed.
+Successful list output uses `{ "requests": [...], "count": number }`. Approval uses `{ "approved": true, "request": {...} }`; rejection uses `{ "rejected": true, "request": {...} }`. Errors use `{ "error": { "code": string, "message": string, "details"?: unknown } }` and a nonzero exit code. Tokens are never printed.
 
 ## Development
 

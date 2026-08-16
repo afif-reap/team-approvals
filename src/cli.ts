@@ -7,8 +7,11 @@ import { configPath, defaultApprovalComment, getConfig } from "./config.js";
 import { discoverTeamConfig, writeTeamConfig } from "./discovery.js";
 import { asCliError, CliError } from "./errors.js";
 import { readRefreshToken } from "./keychain.js";
-import { printJson, printRequests, requestSummary } from "./output.js";
+import { printJson, printRequests, printRequestOptions, requestSummary } from "./output.js";
 import { buildRequestDraft, RequestsApi } from "./requests.js";
+import { clackPrompter, isInteractive } from "./ui.js";
+import { missingCreateFields, runCreateWizard } from "./wizards/create.js";
+import { runReviewWizard } from "./wizards/review.js";
 
 const program = new Command();
 const jsonRequested = process.argv.includes("--json");
@@ -177,33 +180,69 @@ requests
     const session = await refreshSession();
     const api = new RequestsApi(session);
     const [options, settings] = await Promise.all([api.getOptions(), api.getSettings()]);
-    printJson({ options, settings });
+    if (jsonRequested) printJson({ options, settings });
+    else printRequestOptions(options, settings);
   });
 
 requests
   .command("create")
   .description("Create one temporary elevated-access request")
-  .requiredOption("--account <id-or-name>", "eligible AWS account ID or exact name")
-  .requiredOption("--role <arn-or-name>", "eligible permission-set ARN or exact name")
-  .requiredOption("--duration <hours>", "requested duration in hours", Number)
-  .requiredOption("--justification <text>", "business justification")
+  .option("--account <id-or-name>", "eligible AWS account ID or exact name")
+  .option("--role <arn-or-name>", "eligible permission-set ARN or exact name")
+  .option("--duration <hours>", "requested duration in hours", Number)
+  .option("--justification <text>", "business justification")
   .option("--ticket <number>", "change-management ticket number")
   .option("--start-time <iso-date>", "ISO date-time; defaults to now")
   .option("--dry-run", "validate and show the request without creating it")
   .action(
     async (options: {
-      account: string;
-      role: string;
-      duration: number;
-      justification: string;
+      account?: string;
+      role?: string;
+      duration?: number;
+      justification?: string;
       ticket?: string;
       startTime?: string;
       dryRun?: boolean;
     }) => {
+      const missing = missingCreateFields({
+        account: options.account,
+        role: options.role,
+        duration: options.duration,
+        justification: options.justification,
+      });
+
+      if (missing.length > 0 && isInteractive(jsonRequested)) {
+        const session = await refreshSession();
+        const api = new RequestsApi(session);
+        await runCreateWizard(clackPrompter(), api, {
+          account: options.account,
+          role: options.role,
+          duration: options.duration,
+          justification: options.justification,
+          ticket: options.ticket,
+          startTime: options.startTime,
+        }, Boolean(options.dryRun));
+        return;
+      }
+
+      if (missing.length > 0) {
+        throw new CliError(
+          `Missing required flags: ${missing.join(", ")} (interactive mode requires a terminal)`,
+          "missing_required_flags",
+        );
+      }
+
       const session = await refreshSession();
       const api = new RequestsApi(session);
       const [eligibleOptions, settings] = await Promise.all([api.getOptions(), api.getSettings()]);
-      const draft = buildRequestDraft(eligibleOptions, settings, options);
+      const draft = buildRequestDraft(eligibleOptions, settings, {
+        account: options.account!,
+        role: options.role!,
+        duration: options.duration!,
+        justification: options.justification!,
+        ticket: options.ticket,
+        startTime: options.startTime,
+      });
       if (draft.approvalRequired) await api.assertApproverAvailable(draft.input.accountId);
       if (options.dryRun) {
         printJson({ dry_run: true, action: "create_request", approval_required: draft.approvalRequired, request: draft.input });
@@ -247,6 +286,15 @@ auth
   });
 
 const approvals = program.command("approvals").description("List, inspect, approve, and reject TEAM requests");
+
+approvals.action(async () => {
+  if (isInteractive(jsonRequested)) {
+    const session = await refreshSession();
+    await runReviewWizard(clackPrompter(), new TeamApi(session.accessToken), session.email);
+  } else {
+    throw new CliError("Specify an approvals subcommand: list, get, approve, reject", "invalid_cli_usage");
+  }
+});
 
 approvals
   .command("list")

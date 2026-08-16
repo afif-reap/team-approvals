@@ -38,6 +38,23 @@ team-approvals auth status
 team-approvals auth logout
 ```
 
+## Interactive mode
+
+When run in a terminal without all required flags, commands launch an interactive wizard instead of erroring. The wizard guides you through each field with selects, type-to-filter lists, and validated inputs.
+
+```sh
+team-approvals requests create      # interactive wizard
+team-approvals approvals             # interactive review loop
+```
+
+Partial flags pre-fill the wizard; only missing fields are prompted:
+
+```sh
+team-approvals requests create --account payments-prod   # prompts for role, duration, etc.
+```
+
+Interactive mode activates only in a TTY without `--json` or `CI`. Scripts and agents always get the flag-based interface and are never prompted. See `docs/wireframes/cli-interactive.html` for a clickable simulation of the wizard UX.
+
 ## Approvals
 
 ```sh
@@ -50,6 +67,8 @@ team-approvals approvals reject <request-id> --comment "Insufficient justificati
 team-approvals approvals reject <request-id> --comment "Insufficient justification"
 ```
 
+Running `team-approvals approvals` without a subcommand in a terminal opens an interactive review loop where you can approve, reject, or skip each pending request. Running `approve` or `reject` without a request-id opens the same picker.
+
 Approval and rejection always read the request first, check that it is still pending, block self-action, verify the authenticated email is assigned as an approver, and send an AppSync conditional update requiring `status == pending`. Approval defaults its comment to `Approved via TEAM CLI`; rejection requires an explicit reason.
 
 ## Access requests
@@ -60,7 +79,13 @@ List account and role combinations from the authenticated user's TEAM entitlemen
 team-approvals requests options
 ```
 
-Validate a request without creating it:
+Create a request interactively (recommended):
+
+```sh
+team-approvals requests create
+```
+
+Or with explicit flags for scripts and automation:
 
 ```sh
 team-approvals requests create \

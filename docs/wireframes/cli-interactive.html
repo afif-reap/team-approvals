@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>team-approvals — interactive CLI wireframe</title>
+<style>
+  :root {
+    --bg: #0f0f14;
+    --term: #1a1b26;
+    --fg: #c0caf5;
+    --dim: #565f89;
+    --dimmer: #3b4261;
+    --cyan: #7dcfff;
+    --green: #9ece6a;
+    --yellow: #e0af68;
+    --red: #f7768e;
+    --magenta: #bb9af7;
+    --blue: #7aa2f7;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.5 var(--mono);
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    padding: 28px 16px 40px;
+  }
+
+  .head {
+    width: min(860px, 100%); display: flex; align-items: baseline; gap: 14px;
+    margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .head h1 { font-size: 14px; color: var(--fg); font-weight: 600; }
+  .head p { font-size: 12px; color: var(--dim); }
+
+  .tabs { width: min(860px, 100%); display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .tabs button {
+    font: 12px var(--mono); padding: 7px 13px; cursor: pointer;
+    background: transparent; color: var(--dim);
+    border: 1px solid var(--dimmer); border-radius: 7px;
+  }
+  .tabs button.active { color: var(--cyan); border-color: var(--cyan); background: rgba(125,207,255,.06); }
+  .tabs button.replay { margin-left: auto; color: var(--yellow); border-color: var(--dimmer); }
+  .tabs button.replay:hover { border-color: var(--yellow); }
+
+  .window {
+    width: min(860px, 100%); background: var(--term);
+    border: 1px solid #2a2c3d; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  }
+  .titlebar {
+    display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+    background: #16161e; border-bottom: 1px solid #2a2c3d;
+  }
+  .titlebar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  .titlebar i:nth-child(1) { background: #f7768e; }
+  .titlebar i:nth-child(2) { background: #e0af68; }
+  .titlebar i:nth-child(3) { background: #9ece6a; }
+  .titlebar span { margin-left: 8px; font-size: 11.5px; color: var(--dim); }
+
+  #screen {
+    padding: 18px 20px 22px; min-height: 460px; max-height: 560px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  #screen::-webkit-scrollbar { width: 8px; }
+  #screen::-webkit-scrollbar-thumb { background: var(--dimmer); border-radius: 4px; }
+
+  .hintbar {
+    padding: 9px 20px; border-top: 1px solid #2a2c3d; background: #16161e;
+    font-size: 11.5px; color: var(--dim);
+  }
+  .hintbar b { color: var(--fg); font-weight: 600; }
+
+  .line { min-height: 21px; }
+
+  .c-cyan { color: var(--cyan); }
+  .c-green { color: var(--green); }
+  .c-yellow { color: var(--yellow); }
+  .c-red { color: var(--red); }
+  .c-magenta { color: var(--magenta); }
+  .c-blue { color: var(--blue); }
+  .c-dim { color: var(--dim); }
+  .c-dimmer { color: var(--dimmer); }
+
+  .opt { cursor: pointer; border-radius: 4px; }
+  .opt:hover { background: rgba(125,207,255,.07); }
+  .opt .radio { color: var(--dimmer); }
+  .opt.sel .radio { color: var(--green); }
+  .opt.sel .optlabel { color: var(--fg); font-weight: 600; }
+  .opt .optlabel { color: var(--dim); }
+  .opt .detail { color: var(--dimmer); }
+  .opt.sel .detail { color: var(--dim); }
+
+  .inline-input {
+    font: inherit; color: var(--fg); background: transparent; border: none; outline: none;
+    width: 60%; caret-color: var(--cyan);
+  }
+  .inline-input::placeholder { color: var(--dimmer); }
+
+  .cursor::after {
+    content: "▋"; color: var(--cyan);
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .spin { display: inline-block; color: var(--magenta); }
+
+  .notebox { color: var(--dim); }
+  .notebox .nt { color: var(--fg); font-weight: 600; }
+
+  .err { color: var(--red); }
+
+  table.tbl { border-collapse: collapse; margin: 2px 0; }
+  table.tbl td, table.tbl th { padding: 0 18px 0 0; text-align: left; font-weight: 400; }
+  table.tbl th { color: var(--dim); border-bottom: 1px solid var(--dimmer); }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <h1>team-approvals — interactive CLI (proposed UX)</h1>
+  <p>simulation of the @clack/prompts wizard · use ↑ ↓ Enter or click</p>
+</div>
+
+<div class="tabs" id="tabs">
+  <button data-s="create">requests create</button>
+  <button data-s="review">approvals (review)</button>
+  <button data-s="list">approvals list / options</button>
+  <button class="replay" id="replay">↻ replay</button>
+</div>
+
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>zsh — team-approvals</span></div>
+  <div id="screen" tabindex="0"></div>
+  <div class="hintbar"><b>↑↓</b> navigate &nbsp;·&nbsp; <b>Enter</b> confirm &nbsp;·&nbsp; <b>type</b> to filter lists / fill inputs &nbsp;·&nbsp; everything is also clickable</div>
+</div>
+
+<script>
+"use strict";
+const screenEl = document.getElementById("screen");
+let runToken = 0;
+let activeKeys = null;   // current keydown handler
+const CANCELLED = Symbol("cancelled");
+
+document.addEventListener("keydown", (e) => {
+  if (activeKeys) activeKeys(e);
+});
+
+/* ---------------- primitives ---------------- */
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function line(html, cls = "") {
+  const d = document.createElement("div");
+  d.className = "line " + cls;
+  d.innerHTML = html;
+  screenEl.appendChild(d);
+  screenEl.scrollTop = screenEl.scrollHeight;
+  return d;
+}
+function bar() { return line('<span class="c-dimmer">│</span>'); }
+function sleep(ms, token) {
+  return new Promise((res) => setTimeout(() => res(token === runToken ? true : CANCELLED), ms));
+}
+function guard(token) { if (token !== runToken) throw CANCELLED; }
+
+function cmd(text) {
+  line(`<span class="c-green">❯</span> <span class="c-fg">${esc(text)}</span>`);
+}
+function intro(text) {
+  bar();
+  line(`<span class="c-dimmer">┌</span>  <span class="c-magenta">${esc(text)}</span>`);
+}
+function outro(text, color = "c-green") {
+  line(`<span class="c-dimmer">└</span>  <span class="${color}">${esc(text)}</span>`);
+  line("&nbsp;");
+}
+function note(title, rows) {
+  bar();
+  const box = document.createElement("div");
+  box.className = "notebox";
+  let html = `<div class="line"><span class="c-cyan">◇</span>  <span class="nt">${esc(title)}</span></div>`;
+  for (const r of rows) html += `<div class="line"><span class="c-dimmer">│</span>  ${r}</div>`;
+  box.innerHTML = html;
+  screenEl.appendChild(box);
+  screenEl.scrollTop = screenEl.scrollHeight;
+}
+
+async function spinner(token, text, doneText, ms = 900) {
+  bar();
+  const frames = ["◐", "◓", "◑", "◒"];
+  let i = 0;
+  const l = line(`<span class="spin">${frames[0]}</span>  <span class="c-dim">${esc(text)}</span>`);
+  const iv = setInterval(() => {
+    i = (i + 1) % frames.length;
+    if (token === runToken) l.innerHTML = `<span class="spin">${frames[i]}</span>  <span class="c-dim">${esc(text)}</span>`;
+  }, 90);
+  const r = await sleep(ms, token);
+  clearInterval(iv);
+  if (r === CANCELLED) throw CANCELLED;
+  l.innerHTML = `<span class="c-green">◇</span>  ${esc(doneText)}`;
+  screenEl.scrollTop = screenEl.scrollHeight;
+}
+
+/* select prompt — clack style, keyboard + click + optional type-to-filter.
+   Selection highlight is updated in place (no DOM rebuild on hover), so
+   clicks always land on a live element. */
+function selectPrompt(token, { label, hint = "", options, filterable = false }) {
+  return new Promise((resolve) => {
+    bar();
+    const container = document.createElement("div");
+    screenEl.appendChild(container);
+    let index = 0;
+    let query = "";
+
+    const filtered = () =>
+      !query ? options : options.filter((o) => (o.label + " " + (o.detail || "")).toLowerCase().includes(query.toLowerCase()));
+
+    function updateSel() {
+      container.querySelectorAll(".opt").forEach((el) => {
+        const on = Number(el.dataset.i) === index;
+        el.classList.toggle("sel", on);
+        const radio = el.querySelector(".radio");
+        if (radio) radio.textContent = on ? "●" : "○";
+      });
+    }
+
+    function render() {
+      const list = filtered();
+      if (index >= list.length) index = Math.max(0, list.length - 1);
+      let html = `<div class="line"><span class="c-cyan">◆</span>  <b>${esc(label)}</b>` +
+        (hint ? `  <span class="c-dimmer">${esc(hint)}</span>` : "") +
+        (filterable ? `  <span class="c-dim">${query ? "filter: " : ""}</span><span class="c-yellow">${esc(query)}</span><span class="c-dimmer">${query ? "" : "(type to filter)"}</span>` : "") +
+        `</div>`;
+      if (list.length === 0) html += `<div class="line"><span class="c-dimmer">│</span>  <span class="err">no match — backspace to clear filter</span></div>`;
+      list.forEach((o, i) => {
+        html += `<div class="line opt" data-i="${i}">` +
+          `<span class="c-dimmer">│</span>  <span class="radio">○</span> ` +
+          `<span class="optlabel">${esc(o.label)}</span>` +
+          (o.detail ? `   <span class="detail">${esc(o.detail)}</span>` : "") +
+          (o.badge ? `   <span class="${o.badgeColor || "c-yellow"}">${esc(o.badge)}</span>` : "") +
+          `</div>`;
+      });
+      container.innerHTML = html;
+      updateSel();
+      screenEl.scrollTop = screenEl.scrollHeight;
+    }
+
+    container.addEventListener("mouseover", (e) => {
+      const el = e.target.closest(".opt");
+      if (!el) return;
+      const i = Number(el.dataset.i);
+      if (i !== index) { index = i; updateSel(); }
+    });
+    container.addEventListener("click", (e) => {
+      const el = e.target.closest(".opt");
+      if (!el) return;
+      index = Number(el.dataset.i);
+      submit();
+    });
+
+    function submit() {
+      const list = filtered();
+      const choice = list[index];
+      if (!choice) return;
+      activeKeys = null;
+      container.innerHTML = `<div class="line"><span class="c-green">◇</span>  ${esc(label)} <span class="c-dim">·</span> <span class="c-fg">${esc(choice.label)}</span>` +
+        (choice.detail ? ` <span class="c-dimmer">${esc(choice.detail)}</span>` : "") + `</div>`;
+      resolve(choice);
+    }
+
+    activeKeys = (e) => {
+      if (token !== runToken) { activeKeys = null; return; }
+      if (e.key === "ArrowDown") { index = Math.min(filtered().length - 1, index + 1); updateSel(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { index = Math.max(0, index - 1); updateSel(); e.preventDefault(); }
+      else if (e.key === "Enter") { submit(); e.preventDefault(); }
+      else if (filterable && e.key === "Backspace") { query = query.slice(0, -1); index = 0; render(); e.preventDefault(); }
+      else if (filterable && e.key.length === 1 && !e.metaKey && !e.ctrlKey) { query += e.key; index = 0; render(); e.preventDefault(); }
+    };
+    render();
+  });
+}
+
+/* text prompt with live validation */
+function textPrompt(token, { label, hint = "", placeholder = "", initial = "", validate = null }) {
+  return new Promise((resolve) => {
+    bar();
+    const container = document.createElement("div");
+    screenEl.appendChild(container);
+    container.innerHTML =
+      `<div class="line"><span class="c-cyan">◆</span>  <b>${esc(label)}</b>` +
+      (hint ? `  <span class="c-dimmer">${esc(hint)}</span>` : "") + `</div>` +
+      `<div class="line"><span class="c-dimmer">│</span>  <input class="inline-input" placeholder="${esc(placeholder)}" value="${esc(initial)}" /></div>` +
+      `<div class="line errline"></div>`;
+    const input = container.querySelector("input");
+    const errline = container.querySelector(".errline");
+    activeKeys = null; // real input owns the keyboard
+    setTimeout(() => input.focus(), 0);
+    screenEl.scrollTop = screenEl.scrollHeight;
+
+    input.addEventListener("keydown", (e) => {
+      if (token !== runToken) return;
+      if (e.key !== "Enter") return;
+      const value = input.value.trim();
+      const problem = validate ? validate(value) : null;
+      if (problem) {
+        errline.innerHTML = `<span class="c-dimmer">│</span>  <span class="err">✖ ${esc(problem)}</span>`;
+        return;
+      }
+      container.innerHTML = `<div class="line"><span class="c-green">◇</span>  ${esc(label)} <span class="c-dim">·</span> <span class="c-fg">${esc(value || placeholder)}</span></div>`;
+      resolve(value || placeholder);
+    });
+  });
+}
+
+function confirmPrompt(token, label) {
+  return selectPrompt(token, {
+    label,
+    options: [{ label: "Yes", value: true }, { label: "No", value: false }],
+  }).then((c) => c.value);
+}
+
+/* ---------------- demo data ---------------- */
+
+const ACCOUNTS = [
+  { name: "payments-prod", id: "123456789012", roles: [
+    { name: "SQSOperator", max: 9, approval: true },
+    { name: "ReadOnlyAccess", max: 9, approval: false },
+    { name: "PowerUserAccess", max: 4, approval: true },
+  ]},
+  { name: "payments-staging", id: "123456789013", roles: [
+    { name: "PowerUserAccess", max: 9, approval: false },
+    { name: "ReadOnlyAccess", max: 9, approval: false },
+  ]},
+  { name: "data-prod", id: "123456789014", roles: [
+    { name: "ReadOnlyAccess", max: 9, approval: true },
+    { name: "GlueOperator", max: 4, approval: true },
+  ]},
+  { name: "sandbox", id: "123456789015", roles: [
+    { name: "AdministratorAccess", max: 9, approval: false },
+  ]},
+];
+
+/* ---------------- date/time helpers ---------------- */
+
+const pad2 = (n) => String(n).padStart(2, "0");
+function fmtLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function toRfc3339(d) {
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+/* half-hour slots for a given day; only future ones */
+function timeSlots(dayOffset) {
+  const now = new Date();
+  const base = new Date(now);
+  base.setDate(base.getDate() + dayOffset);
+  const out = [];
+  for (let h = 0; h < 24; h++) for (const m of [0, 30]) {
+    const d = new Date(base);
+    d.setHours(h, m, 0, 0);
+    if (d <= now) continue;
+    out.push({ label: `${pad2(h)}:${pad2(m)}`, detail: fmtLocal(d), value: d });
+  }
+  return out;
+}
+
+const PENDING = [
+  { id: "8f3a91c2", who: "marco@reap.global", account: "payments-prod", role: "SQSOperator", hours: 4,
+    ticket: "PAY-1042", age: "2m ago",
+    just: "Card-statement consumer stalled in prod; need to inspect the SQS DLQ and redrive." },
+  { id: "77b2e0d1", who: "lila@reap.global", account: "data-prod", role: "ReadOnlyAccess", hours: 2,
+    ticket: "DATA-88", age: "1h ago",
+    just: "Verify last night's Glue job output before re-enabling the schedule." },
+  { id: "c04d55aa", who: "theo@reap.global", account: "payments-prod", role: "PowerUserAccess", hours: 4,
+    ticket: "PAY-1051", age: "3h ago",
+    just: "Rotate the Xero webhook secret and update the parameter store entry." },
+];
+
+/* ---------------- scenarios ---------------- */
+
+async function scnCreate(token) {
+  cmd("team-approvals requests create");
+  intro("team-approvals — new access request");
+  await spinner(token, "Loading your entitlements…",
+    "Entitlements loaded — 4 accounts · global max 9h");
+  guard(token);
+
+  /* 1 · account */
+  const acc = await selectPrompt(token, {
+    label: "Account",
+    filterable: true,
+    options: ACCOUNTS.map((a) => ({ label: a.name, detail: a.id, value: a })),
+  });
+  guard(token);
+
+  /* 2 · role */
+  const role = await selectPrompt(token, {
+    label: "Role", hint: `on ${acc.value.name}`,
+    options: acc.value.roles.map((r) => ({
+      label: r.name,
+      detail: `max ${Math.min(r.max, 9)}h`,
+      badge: r.approval ? "approval required" : "auto-approved",
+      badgeColor: r.approval ? "c-yellow" : "c-green",
+      value: r,
+    })),
+  });
+  guard(token);
+
+  /* 3 · duration (narrower of role and global max 9) */
+  const maxH = Math.min(role.value.max, 9);
+  const duration = await textPrompt(token, {
+    label: "Duration (hours)", hint: `1–${maxH} · Enter for 1`, placeholder: "1",
+    validate: (v) => {
+      const n = Number(v || 1);
+      return Number.isInteger(n) && n >= 1 && n <= maxH ? null : `Duration must be an integer from 1 to ${maxH}`;
+    },
+  });
+  guard(token);
+
+  /* 4 · ticket (default N/A) */
+  const ticket = await textPrompt(token, {
+    label: "Ticket", hint: "Enter for N/A", placeholder: "N/A",
+    validate: (v) => (v === "" || /^[A-Za-z0-9]/.test(v) ? null : "Ticket must start with a letter or number"),
+  });
+  guard(token);
+
+  /* 5 · justification */
+  const just = await textPrompt(token, {
+    label: "Justification", placeholder: "Why do you need this access?",
+    validate: (v) => (/^[\p{L}\p{N}]/u.test(v) ? null : "Justification must start with a letter or number"),
+  });
+  guard(token);
+
+  /* 6 · start time — default now, or pick a day + time slot */
+  const now = new Date();
+  const startPick = await selectPrompt(token, {
+    label: "Start time",
+    options: [
+      { label: "Now", detail: fmtLocal(now), value: "now" },
+      { label: "Today at…", detail: "pick a time", value: "today" },
+      { label: "Tomorrow at…", detail: "pick a time", value: "tomorrow" },
+      { label: "Custom…", detail: "RFC 3339", value: "custom" },
+    ],
+  });
+  guard(token);
+
+  let startDate = now;
+  let startLabel = `now (${fmtLocal(now)})`;
+  if (startPick.value === "today" || startPick.value === "tomorrow") {
+    const slot = await selectPrompt(token, {
+      label: `Time — ${startPick.value}`, hint: "type to filter, e.g. 14",
+      filterable: true,
+      options: timeSlots(startPick.value === "today" ? 0 : 1),
+    });
+    guard(token);
+    startDate = slot.value;
+    startLabel = fmtLocal(startDate);
+  } else if (startPick.value === "custom") {
+    const raw = await textPrompt(token, {
+      label: "Start time", hint: "RFC 3339 with timezone", placeholder: toRfc3339(now),
+      validate: (v) => (v === "" || (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/.test(v) && Number.isFinite(Date.parse(v)))
+        ? null : "Must be RFC 3339, e.g. 2026-08-13T10:00:00Z"),
+    });
+    guard(token);
+    startDate = new Date(raw || toRfc3339(now));
+    startLabel = fmtLocal(startDate);
+  }
+
+  /* 7 · review */
+  const needsApproval = role.value.approval;
+  note("Review", [
+    `<span class="c-fg">${esc(acc.value.name)}</span> <span class="c-dimmer">(${esc(acc.value.id)})</span> · <span class="c-fg">${esc(role.value.name)}</span> · <span class="c-fg">${esc(duration)}h</span> · starts <span class="c-fg">${esc(startLabel)}</span>`,
+    `Ticket <span class="c-fg">${esc(ticket)}</span> — <span class="c-dim">“${esc(just)}”</span>`,
+    needsApproval
+      ? `Approval required: <span class="c-yellow">yes</span> <span class="c-dim">· approver availability ✓ (@jane, @tomas)</span>`
+      : `Approval required: <span class="c-green">no — session activates at start time</span>`,
+  ]);
+
+  /* 8 · dry-run or submit */
+  const action = await selectPrompt(token, {
+    label: "How do you want to proceed?",
+    options: [
+      { label: "Dry-run first", detail: "validate and show the payload without creating", value: "dry" },
+      { label: "Submit now", value: "submit" },
+      { label: "Cancel", value: "cancel" },
+    ],
+  });
+  guard(token);
+  if (action.value === "cancel") { outro("Cancelled — nothing was sent.", "c-dim"); return; }
+
+  if (action.value === "dry") {
+    await spinner(token, "Validating (dry-run)…", "Dry-run passed — nothing was created");
+    guard(token);
+    note("Payload (createRequests input)", [
+      `<span class="c-dim">accountId:</span>     <span class="c-fg">"${esc(acc.value.id)}"</span>`,
+      `<span class="c-dim">role:</span>          <span class="c-fg">"${esc(role.value.name)}"</span>`,
+      `<span class="c-dim">startTime:</span>     <span class="c-fg">"${esc(toRfc3339(startDate))}"</span>`,
+      `<span class="c-dim">duration:</span>      <span class="c-fg">"${esc(duration)}"</span>`,
+      `<span class="c-dim">ticketNo:</span>      <span class="c-fg">"${esc(ticket)}"</span>`,
+      `<span class="c-dim">justification:</span> <span class="c-fg">"${esc(just)}"</span>`,
+      `<span class="c-dim">approval_required:</span> <span class="${needsApproval ? "c-yellow" : "c-green"}">${needsApproval}</span>`,
+    ]);
+    const submitNow = await confirmPrompt(token, "Submit this request now?");
+    guard(token);
+    if (!submitNow) { outro("Dry-run only — nothing was created.", "c-dim"); return; }
+  }
+
+  await spinner(token, "Submitting createRequests mutation…", "Request created");
+  guard(token);
+  outro(needsApproval
+    ? `Created request 8f3a91c2 — pending approval. You'll get the session once an approver acts.`
+    : `Created request 8f3a91c2 — auto-approved. Session activates ${startPick.value === "now" ? "immediately" : `at ${startLabel}`} for ${duration}h.`);
+}
+
+async function scnReview(token) {
+  cmd("team-approvals approvals");
+  intro("team-approvals — review pending requests");
+  await spinner(token, "Loading requests assigned to you…", `${PENDING.length} pending requests assigned to you`);
+  guard(token);
+
+  const queue = [...PENDING];
+  while (queue.length > 0) {
+    const pick = await selectPrompt(token, {
+      label: "Pending requests", hint: `${queue.length} remaining`,
+      filterable: true,
+      options: [
+        ...queue.map((r) => ({
+          label: r.who.split("@")[0].padEnd(8),
+          detail: `${r.account} / ${r.role} · ${r.hours}h · ${r.ticket} · ${r.age}`,
+          value: r,
+        })),
+        { label: "Quit", detail: "leave remaining requests untouched", value: null },
+      ],
+    });
+    guard(token);
+    if (!pick.value) { outro(`Done — ${queue.length} request(s) left pending.`, "c-dim"); return; }
+    const r = pick.value;
+
+    note(`Request ${r.id}`, [
+      `<span class="c-fg">${esc(r.who)}</span> → <span class="c-fg">${esc(r.account)} / ${esc(r.role)}</span> · ${r.hours}h · ${esc(r.ticket)}`,
+      `<span class="c-dim">“${esc(r.just)}”</span>`,
+      `<span class="c-dimmer">requested ${esc(r.age)} · self-approval and approver checks enforced by TEAM backend</span>`,
+    ]);
+
+    const action = await selectPrompt(token, {
+      label: "Action",
+      options: [
+        { label: "Approve", value: "approve" },
+        { label: "Reject…", value: "reject" },
+        { label: "Skip", detail: "decide later", value: "skip" },
+      ],
+    });
+    guard(token);
+
+    if (action.value === "skip") continue;
+
+    if (action.value === "approve") {
+      const comment = await textPrompt(token, {
+        label: "Comment", hint: "Enter for default", placeholder: "Approved via TEAM CLI",
+        validate: (v) => (v === "" || /[\p{L}\p{N}]/u.test(v[0]) ? null : "Comment must start with a letter or number"),
+      });
+      guard(token);
+      const ok = await confirmPrompt(token, `Approve ${r.id} for ${r.who}?`);
+      guard(token);
+      if (!ok) continue;
+      await spinner(token, "Approving (conditional update: status == pending)…", `✔ Approved ${r.id} — ${r.who} (${r.account} / ${r.role})`);
+      guard(token);
+      queue.splice(queue.indexOf(r), 1);
+    } else {
+      const reason = await textPrompt(token, {
+        label: "Rejection reason", hint: "required", placeholder: "Insufficient justification",
+        validate: (v) => (/[\p{L}\p{N}]/u.test(v[0] ?? "") ? null : "A reason is required"),
+      });
+      guard(token);
+      const ok = await confirmPrompt(token, `Reject ${r.id} for ${r.who}?`);
+      guard(token);
+      if (!ok) continue;
+      await spinner(token, "Rejecting…", `✖ Rejected ${r.id} — “${reason}”`);
+      guard(token);
+      queue.splice(queue.indexOf(r), 1);
+    }
+    if (queue.length > 0) line(`<span class="c-dimmer">│</span>  <span class="c-dim">${queue.length} remaining</span>`);
+  }
+  outro("All pending requests handled. 🎉");
+}
+
+async function scnList(token) {
+  cmd("team-approvals approvals list");
+  await spinner(token, "Loading…", "3 pending requests", 600);
+  guard(token);
+  const rows = PENDING.map((r) =>
+    `<tr><td class="c-dim">${r.id}</td><td>${esc(r.who)}</td><td>${esc(r.account)}</td>` +
+    `<td>${esc(r.role)}</td><td>${r.hours}h</td><td class="c-blue">${esc(r.ticket)}</td><td class="c-dim">${esc(r.age)}</td></tr>`).join("");
+  line(`<table class="tbl"><tr><th>ID</th><th>REQUESTER</th><th>ACCOUNT</th><th>ROLE</th><th>DUR</th><th>TICKET</th><th>AGE</th></tr>${rows}</table>`);
+  line(`<span class="c-dim">Tip: run</span> <span class="c-fg">team-approvals approvals</span> <span class="c-dim">for interactive review, or</span> <span class="c-fg">--json</span> <span class="c-dim">for machine output (unchanged).</span>`);
+  line("&nbsp;");
+
+  cmd("team-approvals requests options");
+  await spinner(token, "Resolving your entitlement policy…", "4 eligible accounts", 700);
+  guard(token);
+  const optRows = ACCOUNTS.flatMap((a) =>
+    a.roles.map((r, i) =>
+      `<tr><td>${i === 0 ? esc(a.name) : ""}</td><td class="c-dim">${i === 0 ? a.id : ""}</td>` +
+      `<td>${esc(r.name)}</td><td>${r.max}h</td>` +
+      `<td class="${r.approval ? "c-yellow" : "c-green"}">${r.approval ? "approval required" : "auto-approved"}</td></tr>`)).join("");
+  line(`<table class="tbl"><tr><th>ACCOUNT</th><th>ID</th><th>ROLE</th><th>MAX</th><th>APPROVAL</th></tr>${optRows}</table>`);
+  line("&nbsp;");
+  outro("Human-readable by default in a terminal · --json stays byte-identical for scripts and agents.", "c-dim");
+}
+
+/* ---------------- runner ---------------- */
+
+const SCENARIOS = { create: scnCreate, review: scnReview, list: scnList };
+let current = "create";
+
+async function run(name) {
+  current = name;
+  runToken += 1;
+  const token = runToken;
+  activeKeys = null;
+  screenEl.innerHTML = "";
+  document.querySelectorAll("#tabs button[data-s]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.s === name));
+  try {
+    await SCENARIOS[name](token);
+  } catch (e) {
+    if (e !== CANCELLED) throw e;
+  }
+}
+
+document.querySelectorAll("#tabs button[data-s]").forEach((b) =>
+  b.addEventListener("click", () => run(b.dataset.s)));
+document.getElementById("replay").addEventListener("click", () => run(current));
+
+run("create");
+</script>
+</body>
+</html>

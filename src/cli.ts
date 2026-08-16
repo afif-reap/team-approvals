@@ -3,13 +3,13 @@ import { Command, CommanderError, Option } from "commander";
 import { createRequire } from "node:module";
 import { TeamApi, validateAction } from "./api.js";
 import { importRefreshToken, refreshSession, revokeSession } from "./auth.js";
-import { configPath, defaultApprovalComment, getConfig } from "./config.js";
-import { discoverTeamConfig, writeTeamConfig } from "./discovery.js";
+import { configPath, defaultApprovalComment, getConfig, type TeamConfig } from "./config.js";
+import { appUrlValidationError, discoverTeamConfig, writeTeamConfig } from "./discovery.js";
 import { asCliError, CliError } from "./errors.js";
 import { readRefreshToken } from "./keychain.js";
 import { printJson, printRequests, printRequestOptions, requestSummary } from "./output.js";
 import { buildRequestDraft, RequestsApi } from "./requests.js";
-import { clackPrompter, isInteractive } from "./ui.js";
+import { clackPrompter, isInteractive, sanitizeText } from "./ui.js";
 import { missingCreateFields, runCreateWizard } from "./wizards/create.js";
 import { runReviewWizard } from "./wizards/review.js";
 
@@ -46,17 +46,78 @@ program.exitOverride((error) => {
 program
   .command("init")
   .description("Discover public Amplify settings from a TEAM app and create the local config")
-  .requiredOption("--app-url <url>", "TEAM web application URL")
+  .option("--app-url <url>", "TEAM web application URL")
   .option("--dry-run", "discover and validate without writing config")
   .option("--force", "replace an existing local config")
-  .action(async (options: { appUrl: string; dryRun?: boolean; force?: boolean }) => {
+  .action(async (options: { appUrl?: string; dryRun?: boolean; force?: boolean }) => {
+    if (options.appUrl === undefined && !isInteractive(jsonRequested)) {
+      throw new CliError(
+        "Missing required flags: --app-url (interactive mode requires a terminal)",
+        "missing_required_flags",
+      );
+    }
+
+    if (options.appUrl === undefined) {
+      const prompter = clackPrompter();
+      prompter.intro("team-approvals \u2014 setup");
+
+      const appUrl = (await prompter.text({
+        message: "TEAM application URL",
+        placeholder: "https://aws-team.example.com/",
+        validate: (v) => appUrlValidationError(v.trim()) ?? undefined,
+      })).trim();
+
+      const spin = prompter.spinner();
+      spin.start("Discovering TEAM configuration\u2026");
+      let discovered: TeamConfig;
+      try {
+        discovered = await discoverTeamConfig(appUrl);
+        spin.stop("Configuration discovered");
+      } catch (error) {
+        spin.stop("Discovery failed");
+        throw error;
+      }
+
+      prompter.note(
+        [
+          `appUrl:          ${sanitizeText(discovered.appUrl)}`,
+          `graphQlEndpoint: ${sanitizeText(discovered.graphQlEndpoint)}`,
+          `cognitoDomain:   ${sanitizeText(discovered.cognitoDomain)}`,
+          `clientId:        ${sanitizeText(discovered.clientId)}`,
+          `userPoolId:      ${sanitizeText(discovered.userPoolId)}`,
+        ].join("\n"),
+        "Discovered configuration",
+      );
+
+      if (options.dryRun) {
+        prompter.outro("Dry-run only \u2014 nothing was written.");
+        return;
+      }
+
+      try {
+        writeTeamConfig(discovered, configPath, Boolean(options.force));
+      } catch (error) {
+        if (error instanceof CliError && error.code === "config_exists") {
+          const replace = await prompter.confirm({
+            message: `Config already exists at ${configPath} \u2014 replace it?`,
+          });
+          if (!replace) {
+            prompter.outro("Kept existing config \u2014 nothing was written.");
+            return;
+          }
+          writeTeamConfig(discovered, configPath, true);
+        } else {
+          throw error;
+        }
+      }
+
+      prompter.outro(`Created TEAM config at ${configPath}.`);
+      return;
+    }
+
     const discovered = await discoverTeamConfig(options.appUrl);
     if (!options.dryRun) writeTeamConfig(discovered, configPath, Boolean(options.force));
-    const result = {
-      written: !options.dryRun,
-      path: configPath,
-      config: discovered,
-    };
+    const result = { written: !options.dryRun, path: configPath, config: discovered };
     if (jsonRequested) printJson(result);
     else process.stdout.write(`${options.dryRun ? "Discovered" : "Created"} TEAM config at ${configPath}.\n`);
   });

@@ -39,3 +39,18 @@ test("approvals approve without request-id errors with usage error", () => {
   assert.equal(parsed.error.code, "invalid_cli_usage");
   assert.ok(parsed.error.message.includes("request-id"));
 });
+
+test("init without --app-url errors in non-TTY with missing_required_flags", () => {
+  const result = run("--json", "init");
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, "");
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.error.code, "missing_required_flags");
+  assert.ok(parsed.error.message.includes("--app-url"));
+});
+
+test("init without --app-url in plain non-TTY prints error to stderr", () => {
+  const result = run("init");
+  assert.equal(result.status, 1);
+  assert.ok(result.stderr.includes("Missing required flags: --app-url"));
+});

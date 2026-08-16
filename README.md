@@ -11,8 +11,14 @@ Requirements: macOS, Node.js 22+, and pnpm.
 ```sh
 pnpm install
 make install-local
-team-approvals init --app-url https://your-team-app.example.com/
+team-approvals init
 team-approvals --help
+```
+
+`init` run alone in a terminal prompts for the TEAM application URL, discovers the public Amplify settings, shows the result, and asks before replacing an existing config. For automation, pass the URL directly:
+
+```sh
+team-approvals init --app-url https://your-team-app.example.com/
 ```
 
 `init` downloads same-origin JavaScript from the supplied TEAM application, extracts every required public Amplify value, validates the Cognito and AppSync destinations, and creates `~/.config/team-approvals/config.json` with mode `600`. It never evaluates downloaded JavaScript.
@@ -23,7 +29,7 @@ Preview the discovered values without writing:
 team-approvals --json init --app-url https://your-team-app.example.com/ --dry-run
 ```
 
-Use `--force` only to replace an existing config. `config.example.json` documents the generated format; deployment-specific values remain outside this repository.
+Use `--force` only to replace an existing config (or answer Yes when prompted interactively). `config.example.json` documents the generated format; deployment-specific values remain outside this repository.
 
 ## Authenticate
 

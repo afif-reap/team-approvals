@@ -5,6 +5,8 @@ description: List, inspect, approve, reject, and create AWS TEAM IAM Identity Ce
 
 # TEAM Approvals
 
+Always pass explicit flags with `--json`; the CLI has an interactive mode for human use, but it never prompts without a TTY. Agents must not rely on interactive prompts.
+
 Use the installed `team-approvals` command. If it is unavailable, stop and direct the user to this repository's README installation steps; do not run package-manager or Make commands in an unrelated workspace. Verify setup with:
 
 ```sh

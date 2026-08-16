@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { discoverTeamConfig, isPublicAddress, parseAmplifyConfig, writeTeamConfig } from "../src/discovery.js";
+import { appUrlValidationError, discoverTeamConfig, isPublicAddress, parseAmplifyConfig, writeTeamConfig } from "../src/discovery.js";
 import { CliError } from "../src/errors.js";
 
 const bundle = `
@@ -168,4 +168,11 @@ test("writeTeamConfig writes mode 600 and requires force to replace", () => {
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("appUrlValidationError enforces HTTPS URLs without credentials", () => {
+  assert.equal(appUrlValidationError("https://team.example.com/"), null);
+  assert.equal(appUrlValidationError("not a url"), "--app-url must be a valid HTTPS URL");
+  assert.equal(appUrlValidationError("http://team.example.com/"), "--app-url must be an HTTPS URL without credentials");
+  assert.equal(appUrlValidationError("https://user:pw@team.example.com/"), "--app-url must be an HTTPS URL without credentials");
 });

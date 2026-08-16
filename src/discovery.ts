@@ -236,19 +236,26 @@ function scriptSources(html: string): string[] {
   return result;
 }
 
+export function appUrlValidationError(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return "--app-url must be a valid HTTPS URL";
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    return "--app-url must be an HTTPS URL without credentials";
+  }
+  return null;
+}
+
 export async function discoverTeamConfig(
   appUrl: string,
   fetcher?: typeof fetch,
 ): Promise<TeamConfig> {
-  let source: URL;
-  try {
-    source = new URL(appUrl);
-  } catch {
-    throw new CliError("--app-url must be a valid HTTPS URL", "invalid_app_url");
-  }
-  if (source.protocol !== "https:" || source.username || source.password) {
-    throw new CliError("--app-url must be an HTTPS URL without credentials", "invalid_app_url");
-  }
+  const problem = appUrlValidationError(appUrl);
+  if (problem) throw new CliError(problem, "invalid_app_url");
+  const source = new URL(appUrl);
 
   const textFetcher: TextFetcher = fetcher
     ? async (url, maxBytes) => readResponse(await fetcher(url, { redirect: "error" }), maxBytes)

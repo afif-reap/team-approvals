@@ -59,7 +59,7 @@ Partial flags pre-fill the wizard; only missing fields are prompted:
 team-approvals requests create --account payments-prod   # prompts for role, duration, etc.
 ```
 
-Interactive mode activates only in a TTY without `--json` or `CI`. Scripts and agents always get the flag-based interface and are never prompted. See `docs/wireframes/cli-interactive.html` for a clickable simulation of the wizard UX.
+Interactive mode activates only in a TTY without `--json` or `CI`. Scripts and agents always get the flag-based interface and are never prompted.
 
 ## Approvals
 

@@ -39,10 +39,10 @@ export type CreateAnswers = {
 
 export function missingCreateFields(flags: Partial<CreateAnswers>): string[] {
   const missing: string[] = [];
-  if (!flags.account) missing.push("--account");
-  if (!flags.role) missing.push("--role");
+  if (flags.account === undefined) missing.push("--account");
+  if (flags.role === undefined) missing.push("--role");
   if (flags.duration === undefined || flags.duration === null) missing.push("--duration");
-  if (!flags.justification) missing.push("--justification");
+  if (flags.justification === undefined) missing.push("--justification");
   return missing;
 }
 
@@ -81,7 +81,7 @@ export async function runCreateWizard(
   loadSpin.stop(`Entitlements loaded \u2014 ${options.length} account${options.length === 1 ? "" : "s"} \u00b7 global max ${settings.maxDuration}h`);
 
   let resolvedAccount: RequestOption;
-  if (flags.account) {
+  if (flags.account !== undefined) {
     resolvedAccount = resolveUnique(options, flags.account, "account");
   } else {
     resolvedAccount = await prompter.filterSelect<RequestOption>({
@@ -93,7 +93,7 @@ export async function runCreateWizard(
 
   const accountRoles = resolvedAccount.roles;
   let resolvedRole: (typeof accountRoles)[number];
-  if (flags.role) {
+  if (flags.role !== undefined) {
     resolvedRole = resolveUnique(accountRoles, flags.role, "role");
   } else {
     resolvedRole = await prompter.select({
@@ -143,7 +143,7 @@ export async function runCreateWizard(
   }
 
   let justification: string;
-  if (flags.justification) {
+  if (flags.justification !== undefined) {
     justification = flags.justification;
   } else {
     justification = await prompter.text({
@@ -160,7 +160,7 @@ export async function runCreateWizard(
   let startTime: string | undefined;
   let startLabel = `now (${fmtLocal(now)})`;
 
-  if (flags.startTime) {
+  if (flags.startTime !== undefined) {
     startTime = flags.startTime;
     startLabel = flags.startTime;
   } else {

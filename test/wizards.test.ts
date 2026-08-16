@@ -63,3 +63,8 @@ test("missingCreateFields treats duration 0 as provided", () => {
   const result = missingCreateFields({ account: "a", role: "b", duration: 0, justification: "j" });
   assert.deepEqual(result, []);
 });
+
+test("missingCreateFields treats empty strings as provided", () => {
+  const result = missingCreateFields({ account: "", role: "", duration: 4, justification: "" });
+  assert.deepEqual(result, []);
+});

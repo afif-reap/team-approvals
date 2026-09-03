@@ -33,12 +33,33 @@ Use `--force` only to replace an existing config (or answer Yes when prompted in
 
 ## Authenticate
 
+Use an existing signed-in TEAM tab with Chrome 144 or later:
+
+This method supports Google Chrome Stable's default macOS profile. Use manual import for another Chrome channel or a custom profile.
+
+1. Close any extra TEAM tabs so exactly one signed-in TEAM page remains open.
+2. Open `chrome://inspect/#remote-debugging` and enable Chrome's built-in remote debugging.
+3. Run:
+
+   ```sh
+   team-approvals auth login --chrome
+   ```
+
+4. Choose **Allow** in Chrome's native consent dialog.
+5. Disable remote debugging at `chrome://inspect/#remote-debugging` after the command finishes.
+
+Chrome's **Allow** action grants the command temporary debugging access to the whole browser profile. The command restricts itself to Chrome's loopback debugging socket and verifies the TEAM page origin. It reads that app client's unique Cognito refresh token and closes the socket before it validates and saves the token. The command does not launch Chrome or create a browser profile.
+
+If Chrome login is unavailable, use the existing manual import:
+
 ```sh
 team-approvals auth import
 team-approvals auth status
 ```
 
 `auth import` prints the DevTools snippet for copying the refresh token from an existing TEAM browser session, then accepts it in a hidden prompt. The CLI validates it with Cognito, verifies the signed ID token, and stores it under `team-approvals.refresh-token` in macOS Keychain. When it expires or is revoked, import a new token.
+
+TEAM's daily server-side session expiry still applies to both login methods. Run the Chrome login or manual import again after the session expires.
 
 ```sh
 team-approvals auth logout

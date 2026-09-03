@@ -16,13 +16,27 @@ team-approvals --json doctor
 
 If `doctor` reports `config_missing`, run `team-approvals init --app-url <TEAM_URL>`. Ask for the TEAM application URL if the user has not supplied it. Never publish or commit discovered deployment values.
 
-If authentication is missing, expired, or revoked, ask the user to run `team-approvals auth import` in their terminal. After they finish, verify with:
+If authentication is missing, expired, or revoked, ask the user to run this command in their own terminal:
+
+```sh
+team-approvals auth login --chrome
+```
+
+Before they run it, ask them to keep exactly one signed-in TEAM tab open and enable remote debugging at `chrome://inspect/#remote-debugging`. After the command exits, ask them to disable remote debugging.
+
+If Chrome login is unavailable, ask them to run `team-approvals auth import` instead. Never run either interactive authentication command through agent tools.
+
+After the user finishes, verify with:
 
 ```sh
 team-approvals --json auth status
 ```
 
-`auth import` prints a DevTools snippet and accepts the refresh token in a hidden prompt. The user must perform this locally. Never request, receive, display, copy, or operate on the token through agent tools or chat.
+Chrome login uses Chrome's native consent dialog, which grants temporary debugging access to the whole browser profile. `auth import` prints a DevTools snippet and accepts the refresh token in a hidden prompt. The user must perform either login method locally.
+
+Chrome login supports Google Chrome Stable's default macOS profile. Use `auth import` for another Chrome channel or a custom profile.
+
+Never request, receive, display, copy, or operate on a token through agent tools or chat.
 
 Discover and inspect before writing:
 

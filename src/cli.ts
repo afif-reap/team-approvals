@@ -3,6 +3,7 @@ import { Command, CommanderError, Option } from "commander";
 import { createRequire } from "node:module";
 import { TeamApi, validateAction } from "./api.js";
 import { importRefreshToken, refreshSession, revokeSession } from "./auth.js";
+import { readChromeRefreshToken } from "./chrome-auth.js";
 import { configPath, defaultApprovalComment, getConfig, type TeamConfig } from "./config.js";
 import { appUrlValidationError, discoverTeamConfig, writeTeamConfig } from "./discovery.js";
 import { asCliError, CliError } from "./errors.js";
@@ -325,6 +326,32 @@ auth
     const result = { authenticated: true, email: session.email, expires_at: session.expiresAt };
     if (jsonRequested) printJson(result);
     else process.stdout.write(`Imported TEAM authentication for ${session.email}.\n`);
+  });
+
+auth
+  .command("login")
+  .description("Import TEAM authentication from an existing Chrome session")
+  .option("--chrome", "use Chrome built-in remote debugging")
+  .action(async (options: { chrome?: boolean }) => {
+    if (!options.chrome) throw new CliError("auth login requires --chrome", "invalid_cli_usage");
+    if (!isInteractive(jsonRequested)) {
+      throw new CliError("Chrome authentication requires an interactive terminal", "tty_required");
+    }
+    const config = getConfig();
+    process.stderr.write(
+      [
+        "Chrome 144 or later is required.",
+        "Remote debugging must already be enabled at chrome://inspect/#remote-debugging.",
+        "If it is disabled, press Ctrl-C, enable it, and rerun this command.",
+        "Chrome's Allow action grants this command temporary debugging access to the whole browser profile.",
+        "Keep exactly one signed-in TEAM tab open, then choose Allow in Chrome's native dialog.",
+        "Disable remote debugging after authentication finishes.",
+        "If Chrome login is unavailable, press Ctrl-C and run `team-approvals auth import`.",
+      ].join("\n") + "\n",
+    );
+    const refreshToken = await readChromeRefreshToken({ appUrl: config.appUrl, clientId: config.clientId });
+    const session = await refreshToken.use(importRefreshToken);
+    process.stdout.write(`Authenticated as ${session.email}; token valid until ${session.expiresAt}.\n`);
   });
 
 auth

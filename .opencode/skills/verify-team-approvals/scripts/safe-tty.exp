@@ -1,0 +1,60 @@
+#!/usr/bin/expect -f
+
+set timeout 45
+if {$argc < 4} {
+  puts stderr "usage: safe-tty.exp <transcript> <create-dry-run|review-quit> <cli> <arguments...>"
+  exit 2
+}
+
+set transcript [lindex $argv 0]
+set scenario [lindex $argv 1]
+set command [lrange $argv 2 end]
+log_user 0
+log_file -noappend -a $transcript
+spawn -noecho {*}$command
+catch {exec stty -f $spawn_out(slave,name) columns 120 rows 40}
+
+if {$scenario eq "create-dry-run"} {
+  expect {
+    -re {Justification} {}
+    timeout { puts stderr "timed out waiting for the justification prompt"; exit 124 }
+    eof { puts stderr "create wizard exited before the justification prompt"; exit 1 }
+  }
+  send -- "Verification only\r"
+  expect {
+    -re {Dry-run only.*nothing was created\.} {}
+    timeout { puts stderr "timed out waiting for dry-run completion"; exit 124 }
+    eof { puts stderr "create wizard exited without dry-run proof"; exit 1 }
+  }
+} elseif {$scenario eq "review-quit"} {
+  expect {
+    -re {No pending TEAM approvals\.} {}
+    -re {Pending requests \(([0-9]+) remaining\)} {
+      set count $expect_out(1,string)
+      send -- [string repeat "j" $count]
+      send -- "\r"
+      expect {
+        -re {Done.*left pending\.} {}
+        timeout { puts stderr "timed out waiting for review queue exit"; exit 124 }
+        eof { puts stderr "review queue exited without quit proof"; exit 1 }
+      }
+    }
+    timeout { puts stderr "timed out waiting for the review queue"; exit 124 }
+    eof { puts stderr "review wizard exited before a safe terminal state"; exit 1 }
+  }
+} else {
+  puts stderr "unknown scenario: $scenario"
+  exit 2
+}
+
+expect {
+  eof {}
+  timeout {
+    puts stderr "timed out waiting for the CLI process to exit"
+    catch {close}
+    catch {wait}
+    exit 124
+  }
+}
+set result [wait]
+exit [lindex $result 3]

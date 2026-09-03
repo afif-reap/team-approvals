@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
+cli="$root/dist/cli.js"
+evidence_root=${TEAM_APPROVALS_EVIDENCE_DIR:-"$root/.opencode/verification/team-approvals"}
+tty_driver="$root/.opencode/skills/verify-team-approvals/scripts/safe-tty.exp"
+lock_dir="${TMPDIR%/}/opencode/team-approvals-verification.lock"
+
+usage() {
+  printf '%s\n' \
+    "usage:" \
+    "  control-team-approvals build" \
+    "  control-team-approvals doctor" \
+    "  control-team-approvals capture <feature-id> [--] <team-approvals arguments...>" \
+    "  control-team-approvals tty-capture <feature-id> create-dry-run [account-id role-id]" \
+    "  control-team-approvals tty-capture <feature-id> review-quit"
+}
+
+acquire_run_lock() {
+  mkdir -p "$evidence_root"
+  mkdir -p "$(dirname "$lock_dir")"
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    printf 'another verification helper owns %s; do not drive the shared config and Keychain session in parallel\n' "$lock_dir" >&2
+    exit 1
+  fi
+  trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+}
+
+case "${1:-}" in
+  build)
+    cd "$root"
+    acquire_run_lock
+    pnpm install --frozen-lockfile
+    pnpm check
+    pnpm build
+    chmod +x "$cli"
+    ;;
+  doctor)
+    cd "$root"
+    acquire_run_lock
+    [[ -x "$cli" ]] || { printf 'dist/cli.js is missing or not executable; run control-team-approvals build\n' >&2; exit 1; }
+    expected_version=$(node -p 'require("./package.json").version')
+    actual_version=$($cli --version)
+    [[ "$actual_version" == "$expected_version" ]] || {
+      printf 'built version %s does not match package version %s\n' "$actual_version" "$expected_version" >&2
+      exit 1
+    }
+    if find src package.json pnpm-lock.yaml tsconfig.json -newer "$cli" -print -quit | grep -q .; then
+      printf 'dist/cli.js is older than its source; run control-team-approvals build\n' >&2
+      exit 1
+    fi
+    "$cli" --json doctor
+    ;;
+  capture)
+    feature=${2:-}
+    [[ "$feature" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { printf 'feature-id must contain lowercase letters, numbers, and hyphens\n' >&2; exit 2; }
+    shift 2
+    if [[ "${1:-}" == "--" ]]; then shift; fi
+    [[ $# -gt 0 ]] || { usage >&2; exit 2; }
+    [[ -x "$cli" ]] || { printf 'dist/cli.js is missing or not executable; run control-team-approvals build\n' >&2; exit 1; }
+    acquire_run_lock
+
+    run_id=${RUN_ID:-"$(date -u +%Y%m%dT%H%M%SZ)-$$"}
+    output_dir="$evidence_root/$run_id/$feature"
+    if ! mkdir -p "$output_dir" || [[ -e "$output_dir/action.txt" ]]; then
+      printf 'evidence already exists at %s; use a new RUN_ID or feature-id\n' "$output_dir" >&2
+      exit 1
+    fi
+
+    {
+      printf 'cwd: %s\ncommand:' "$root"
+      printf ' %q' "$cli" "$@"
+      printf '\n'
+    } >"$output_dir/action.txt"
+
+    cd "$root"
+    if "$cli" "$@" >"$output_dir/stdout.txt" 2>"$output_dir/stderr.txt"; then
+      status=0
+    else
+      status=$?
+    fi
+    printf '%s\n' "$status" >"$output_dir/exit-code.txt"
+    printf '%s\n' "$output_dir"
+    exit "$status"
+    ;;
+  tty-capture)
+    feature=${2:-}
+    scenario=${3:-}
+    [[ "$feature" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { printf 'feature-id must contain lowercase letters, numbers, and hyphens\n' >&2; exit 2; }
+    [[ "$scenario" == "create-dry-run" || "$scenario" == "review-quit" ]] || { usage >&2; exit 2; }
+    [[ -x "$cli" && -x "$tty_driver" ]] || { printf 'the CLI or TTY driver is not executable; run control-team-approvals build and check the skill files\n' >&2; exit 1; }
+    acquire_run_lock
+
+    run_id=${RUN_ID:-"$(date -u +%Y%m%dT%H%M%SZ)-$$"}
+    output_dir="$evidence_root/$run_id/$feature"
+    if ! mkdir -p "$output_dir" || [[ -e "$output_dir/action.txt" ]]; then
+      printf 'evidence already exists at %s; use a new RUN_ID or feature-id\n' "$output_dir" >&2
+      exit 1
+    fi
+
+    command_args=()
+    if [[ "$scenario" == "create-dry-run" ]]; then
+      account_id=${4:-}
+      role_id=${5:-}
+      if [[ -n "$account_id" || -n "$role_id" ]]; then
+        [[ -n "$account_id" && -n "$role_id" ]] || { printf 'create-dry-run requires both account-id and role-id\n' >&2; exit 2; }
+      else
+        selection_status=0
+        selection=$(
+          "$cli" --json requests options | node -e '
+            let input = "";
+            process.stdin.on("data", (chunk) => input += chunk);
+            process.stdin.on("end", () => {
+              const data = JSON.parse(input);
+              const candidates = data.options.flatMap((account) => account.roles.map((role) => ({ account, role })));
+              const picked = candidates.find(({ role }) => !data.settings.approvalRequired || !role.approvalRequired) ?? candidates[0];
+              if (!picked) process.exit(3);
+              console.log(`${picked.account.id}\t${picked.role.id}`);
+            });
+          '
+        ) || selection_status=$?
+        if [[ "$selection_status" -eq 3 ]]; then
+          printf 'no eligible account and role are available for the create wizard\n' >&2
+          exit 3
+        fi
+        [[ "$selection_status" -eq 0 ]] || exit "$selection_status"
+        IFS=$'\t' read -r account_id role_id <<<"$selection"
+      fi
+      start_time=$(node -e 'console.log(new Date(Date.now() + 300000).toISOString().replace(/\.\d{3}Z$/, "Z"))')
+      command_args=(requests create --account "$account_id" --role "$role_id" --duration 1 --ticket VERIFY --start-time "$start_time" --dry-run)
+    else
+      command_args=(approvals)
+    fi
+
+    {
+      printf 'cwd: %s\nscenario: %s\ncommand:' "$root" "$scenario"
+      printf ' %q' "$cli" "${command_args[@]}"
+      printf '\n'
+    } >"$output_dir/action.txt"
+
+    cd "$root"
+    if "$tty_driver" "$output_dir/transcript.txt" "$scenario" "$cli" "${command_args[@]}"; then
+      status=0
+    else
+      status=$?
+    fi
+    printf '%s\n' "$status" >"$output_dir/exit-code.txt"
+    printf '%s\n' "$output_dir"
+    exit "$status"
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
